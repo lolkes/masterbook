@@ -14,12 +14,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from aiogram import Bot, Dispatcher, Router
-from aiogram.filters import CommandStart
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, Update
+from aiogram.filters import Command, CommandStart
+from aiogram.types import (
+    BotCommand,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    MenuButtonWebApp,
+    Message,
+    Update,
+    WebAppInfo,
+)
 
 from database import *
 
-VERSION = "8.1"
+VERSION = "8.2"
 BASE = Path(__file__).parent
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
 DEMO = os.getenv("DEMO_MODE", "0") == "1"
@@ -35,21 +43,51 @@ router = Router()
 dp.include_router(router)
 bot = Bot(TOKEN) if TOKEN else None
 
+
+def open_app_keyboard():
+    if not PUBLIC_URL:
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📱 Открыть MasterBook", web_app=WebAppInfo(url=PUBLIC_URL))]
+        ]
+    )
+
+
 @router.message(CommandStart())
 async def start(message: Message):
     if not PUBLIC_URL:
-        await message.answer("👋 MasterBook запущен, но адрес Mini App ещё не настроен.")
+        await message.answer(
+            "👋 <b>MasterBook</b> запущен, но адрес приложения ещё не настроен.",
+            parse_mode="HTML",
+        )
         return
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="📱 Открыть MasterBook", web_app=WebAppInfo(url=PUBLIC_URL))
-    ]])
     await message.answer(
-        "👋 <b>Добро пожаловать в MasterBook!</b>\n\n"
-        "Учёт клиентов, работ, доходов и расходов — прямо в Telegram.\n\n"
-        "Нажмите кнопку ниже, чтобы открыть приложение.",
-        reply_markup=keyboard,
-        parse_mode="HTML"
+        "👋 <b>MasterBook</b>\n\n"
+        "Ваш рабочий кабинет мастера прямо в Telegram.\n\n"
+        "• 👤 клиенты\n"
+        "• 🔧 работы и заказы\n"
+        "• 💰 доходы и прибыль\n"
+        "• 💸 расходы\n"
+        "• 📊 статистика\n\n"
+        "Все данные привязаны к вашему Telegram-аккаунту.",
+        reply_markup=open_app_keyboard(),
+        parse_mode="HTML",
     )
+
+
+@router.message(Command("help"))
+async def help_command(message: Message):
+    await message.answer(
+        "<b>MasterBook</b> — простой рабочий кабинет для частного мастера.\n\n"
+        "Откройте приложение через кнопку <b>MasterBook</b> в меню бота.\n\n"
+        "Команды:\n"
+        "/start — открыть MasterBook\n"
+        "/help — помощь",
+        reply_markup=open_app_keyboard(),
+        parse_mode="HTML",
+    )
+
 
 def auth(data):
     if not data:
@@ -80,12 +118,15 @@ def auth(data):
         raise HTTPException(401, "Не удалось определить пользователя Telegram")
     return user_id
 
+
 def uid(header):
     return auth(header)
+
 
 def validate_status(status, payment):
     if status not in STATUSES or payment not in PAYMENTS:
         raise HTTPException(400, "Недопустимый статус или способ оплаты")
+
 
 def valid_date(value: str):
     try:
@@ -94,10 +135,12 @@ def valid_date(value: str):
         raise ValueError("Дата должна быть в формате YYYY-MM-DD")
     return value
 
+
 class Client(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     phone: str = Field(default="", max_length=40)
     address: str = Field(default="", max_length=300)
+
 
 class Job(BaseModel):
     client_id: int | None = None
@@ -115,6 +158,7 @@ class Job(BaseModel):
     def check_date(cls, v):
         return valid_date(v)
 
+
 class Expense(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     amount: float = Field(ge=0)
@@ -126,21 +170,38 @@ class Expense(BaseModel):
     def check_date(cls, v):
         return valid_date(v)
 
+
 @app.on_event("startup")
 async def startup():
     init_db()
     if bot and PUBLIC_URL:
+        await bot.set_my_commands(
+            [
+                BotCommand(command="start", description="Открыть MasterBook"),
+                BotCommand(command="help", description="Помощь по MasterBook"),
+            ]
+        )
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="MasterBook",
+                web_app=WebAppInfo(url=PUBLIC_URL),
+            )
+        )
         await bot.set_webhook(
             url=f"{PUBLIC_URL}{WEBHOOK_PATH}",
             secret_token=WEBHOOK_SECRET,
             drop_pending_updates=False,
         )
 
+
 @app.on_event("shutdown")
 async def shutdown():
     if bot:
-        await bot.delete_webhook(drop_pending_updates=False)
-        await bot.session.close()
+        try:
+            await bot.delete_webhook(drop_pending_updates=False)
+        finally:
+            await bot.session.close()
+
 
 @app.middleware("http")
 async def version_header(request, call_next):
@@ -148,21 +209,32 @@ async def version_header(request, call_next):
     response.headers["X-MasterBook-Version"] = VERSION
     return response
 
+
 @app.get("/")
 def index():
     return FileResponse(BASE / "web" / "index.html")
+
 
 @app.get("/style.css")
 def css():
     return FileResponse(BASE / "web" / "style.css", media_type="text/css")
 
+
 @app.get("/app.js")
 def js():
     return FileResponse(BASE / "web" / "app.js", media_type="application/javascript")
 
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": VERSION, "service": "MasterBook", "telegram": bool(bot), "webhook": bool(bot and PUBLIC_URL)}
+    return {
+        "status": "ok",
+        "version": VERSION,
+        "service": "MasterBook",
+        "telegram": bool(bot),
+        "webhook": bool(bot and PUBLIC_URL),
+    }
+
 
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str | None = Header(None)):
@@ -175,9 +247,11 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
     await dp.feed_update(bot, update)
     return {"ok": True}
 
+
 @app.get("/api/me")
 def me(x_telegram_init_data: str | None = Header(None)):
     return {"user_id": uid(x_telegram_init_data)}
+
 
 @app.get("/api/stats")
 def stats(period: str = "all", x_telegram_init_data: str | None = Header(None)):
@@ -185,17 +259,21 @@ def stats(period: str = "all", x_telegram_init_data: str | None = Header(None)):
         raise HTTPException(400, "Неверный период")
     return get_stats(uid(x_telegram_init_data), period)
 
+
 @app.get("/api/summary")
 def summary(x_telegram_init_data: str | None = Header(None)):
     return get_summary(uid(x_telegram_init_data))
+
 
 @app.get("/api/clients")
 def clients(x_telegram_init_data: str | None = Header(None)):
     return get_clients(uid(x_telegram_init_data))
 
+
 @app.post("/api/clients")
 def add_client(x: Client, x_telegram_init_data: str | None = Header(None)):
     return {"id": create_client(uid(x_telegram_init_data), x.name, x.phone, x.address)}
+
 
 @app.put("/api/clients/{i}")
 def edit_client(i: int, x: Client, x_telegram_init_data: str | None = Header(None)):
@@ -203,15 +281,18 @@ def edit_client(i: int, x: Client, x_telegram_init_data: str | None = Header(Non
         raise HTTPException(404, "Клиент не найден")
     return {"ok": True}
 
+
 @app.delete("/api/clients/{i}")
 def rem_client(i: int, x_telegram_init_data: str | None = Header(None)):
     if not delete_client(uid(x_telegram_init_data), i):
         raise HTTPException(404, "Клиент не найден")
     return {"ok": True}
 
+
 @app.get("/api/jobs")
 def jobs(limit: int = 100, x_telegram_init_data: str | None = Header(None)):
     return get_jobs(uid(x_telegram_init_data), max(1, min(limit, 500)))
+
 
 @app.post("/api/jobs")
 def add_job(x: Job, x_telegram_init_data: str | None = Header(None)):
@@ -222,6 +303,7 @@ def add_job(x: Job, x_telegram_init_data: str | None = Header(None)):
         raise HTTPException(400, "Выбранный клиент недоступен")
     validate_status(x.status, x.payment_status)
     return {"id": create_job(u, x.client_id, x.service, x.price, x.expenses, x.address, x.job_date, x.comment, x.status, x.payment_status)}
+
 
 @app.put("/api/jobs/{i}")
 def edit_job(i: int, x: Job, x_telegram_init_data: str | None = Header(None)):
@@ -235,19 +317,23 @@ def edit_job(i: int, x: Job, x_telegram_init_data: str | None = Header(None)):
         raise HTTPException(404, "Работа не найдена")
     return {"ok": True}
 
+
 @app.delete("/api/jobs/{i}")
 def rem_job(i: int, x_telegram_init_data: str | None = Header(None)):
     if not delete_job(uid(x_telegram_init_data), i):
         raise HTTPException(404, "Работа не найдена")
     return {"ok": True}
 
+
 @app.get("/api/expenses")
 def expenses(limit: int = 100, x_telegram_init_data: str | None = Header(None)):
     return get_expenses(uid(x_telegram_init_data), max(1, min(limit, 500)))
 
+
 @app.post("/api/expenses")
 def add_expense(x: Expense, x_telegram_init_data: str | None = Header(None)):
     return {"id": create_expense(uid(x_telegram_init_data), x.title, x.amount, x.expense_date, x.comment)}
+
 
 @app.put("/api/expenses/{i}")
 def edit_expense(i: int, x: Expense, x_telegram_init_data: str | None = Header(None)):
@@ -255,11 +341,13 @@ def edit_expense(i: int, x: Expense, x_telegram_init_data: str | None = Header(N
         raise HTTPException(404, "Расход не найден")
     return {"ok": True}
 
+
 @app.delete("/api/expenses/{i}")
 def rem_expense(i: int, x_telegram_init_data: str | None = Header(None)):
     if not delete_expense(uid(x_telegram_init_data), i):
         raise HTTPException(404, "Расход не найден")
     return {"ok": True}
+
 
 @app.get("/api/export")
 def export_data(x_telegram_init_data: str | None = Header(None)):
@@ -274,13 +362,32 @@ def export_data(x_telegram_init_data: str | None = Header(None)):
     data = io.BytesIO(("\ufeff" + out.getvalue()).encode("utf-8"))
     return StreamingResponse(data, media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="masterbook-export.csv"'})
 
+
 @app.get("/api/backup")
 def backup(x_telegram_init_data: str | None = Header(None)):
     return JSONResponse(get_backup(uid(x_telegram_init_data)))
 
+
 @app.get("/api/version")
 def api_version():
-    return {"version": VERSION, "features": ["dashboard", "telegram-auth", "per-user-data", "job-status", "payment-status", "search", "csv-export", "json-backup", "crud", "telegram-webhook"]}
+    return {
+        "version": VERSION,
+        "features": [
+            "dashboard",
+            "telegram-auth",
+            "per-user-data",
+            "job-status",
+            "payment-status",
+            "search",
+            "csv-export",
+            "json-backup",
+            "crud",
+            "telegram-webhook",
+            "telegram-menu-button",
+            "telegram-commands",
+        ],
+    }
+
 
 if __name__ == "__main__":
     import uvicorn
