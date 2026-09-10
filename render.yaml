@@ -2,20 +2,14 @@ services:
   - type: web
     name: masterbook
     runtime: python
-    plan: starter
+    plan: free
     region: frankfurt
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     autoDeploy: true
-    disk:
-      name: masterbook-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: DB_PATH
-        value: /var/data/masterbook.db
       - key: DEMO_MODE
         value: "0"
