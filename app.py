@@ -27,7 +27,7 @@ from aiogram.types import (
 
 from database import *
 
-VERSION = "8.2"
+VERSION = "8.3"
 BASE = Path(__file__).parent
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
 DEMO = os.getenv("DEMO_MODE", "0") == "1"
@@ -70,20 +70,76 @@ async def start(message: Message):
         "• 💰 доходы и прибыль\n"
         "• 💸 расходы\n"
         "• 📊 статистика\n\n"
+        "Быстрые команды:\n"
+        "/stats — статистика\n"
+        "/today — записи за сегодня\n"
+        "/clients — последние клиенты\n"
+        "/help — помощь\n\n"
         "Все данные привязаны к вашему Telegram-аккаунту.",
         reply_markup=open_app_keyboard(),
         parse_mode="HTML",
     )
 
 
+@router.message(Command("stats"))
+async def stats_command(message: Message):
+    u = str(message.from_user.id)
+    s = get_stats(u, "month")
+    await message.answer(
+        "📊 <b>Статистика за 30 дней</b>\n\n"
+        f"💰 Доход: <b>{s['income']:,.0f} ₽</b>\n"
+        f"💸 Расходы: <b>{s['expenses']:,.0f} ₽</b>\n"
+        f"📈 Прибыль: <b>{s['profit']:,.0f} ₽</b>\n"
+        f"🔧 Работ: <b>{s['jobs']}</b>\n"
+        f"👤 Клиентов: <b>{s['clients']}</b>\n"
+        f"⏳ Не оплачено: <b>{s['unpaid']:,.0f} ₽</b>",
+        reply_markup=open_app_keyboard(),
+        parse_mode="HTML",
+    )
+
+
+@router.message(Command("today"))
+async def today_command(message: Message):
+    u = str(message.from_user.id)
+    today = date.today().isoformat()
+    jobs_today = [j for j in get_jobs(u, 100) if j.get("job_date") == today]
+    if not jobs_today:
+        text = "📅 <b>Сегодня записей нет.</b>\n\nМожно открыть MasterBook и добавить работу."
+    else:
+        lines = [f"📅 <b>Записи на сегодня: {len(jobs_today)}</b>\n"]
+        for j in jobs_today[:10]:
+            client = j.get("client_name") or "Без клиента"
+            status = {"new": "🆕", "progress": "🔄", "done": "✅", "cancelled": "❌"}.get(j.get("status"), "•")
+            lines.append(f"{status} <b>{j['service']}</b> — {j['price']:,.0f} ₽\n   👤 {client}")
+        text = "\n".join(lines)
+    await message.answer(text, reply_markup=open_app_keyboard(), parse_mode="HTML")
+
+
+@router.message(Command("clients"))
+async def clients_command(message: Message):
+    u = str(message.from_user.id)
+    clients = get_clients(u)[:8]
+    if not clients:
+        text = "👤 <b>Клиентов пока нет.</b>\n\nДобавьте первого клиента в MasterBook."
+    else:
+        lines = ["👤 <b>Последние клиенты</b>\n"]
+        for c in clients:
+            lines.append(f"• <b>{c['name']}</b> — {c.get('jobs_count', 0)} работ, {c.get('total_income', 0):,.0f} ₽")
+        text = "\n".join(lines)
+    await message.answer(text, reply_markup=open_app_keyboard(), parse_mode="HTML")
+
+
 @router.message(Command("help"))
 async def help_command(message: Message):
     await message.answer(
-        "<b>MasterBook</b> — простой рабочий кабинет для частного мастера.\n\n"
-        "Откройте приложение через кнопку <b>MasterBook</b> в меню бота.\n\n"
+        "<b>MasterBook</b> — рабочий кабинет частного мастера.\n\n"
         "Команды:\n"
         "/start — открыть MasterBook\n"
-        "/help — помощь",
+        "/stats — статистика за 30 дней\n"
+        "/today — записи на сегодня\n"
+        "/clients — последние клиенты\n"
+        "/help — помощь\n\n"
+        "Открывайте приложение через кнопку MasterBook, чтобы добавлять и редактировать данные.",
         reply_markup=open_app_keyboard(),
         parse_mode="HTML",
     )
@@ -178,6 +234,9 @@ async def startup():
         await bot.set_my_commands(
             [
                 BotCommand(command="start", description="Открыть MasterBook"),
+                BotCommand(command="stats", description="Статистика за 30 дней"),
+                BotCommand(command="today", description="Записи на сегодня"),
+                BotCommand(command="clients", description="Последние клиенты"),
                 BotCommand(command="help", description="Помощь по MasterBook"),
             ]
         )
@@ -385,6 +444,9 @@ def api_version():
             "telegram-webhook",
             "telegram-menu-button",
             "telegram-commands",
+            "telegram-quick-stats",
+            "telegram-today",
+            "telegram-clients",
         ],
     }
 
