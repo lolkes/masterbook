@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>MarketGo — объявления</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="topbar"><a class="brand" href="./">MarketGo</a><button class="sell" onclick="openSell()">＋ Подать объявление</button></header>
+<main>
+<section class="hero"><p class="eyebrow">MARKETPLACE</p><h1>Найди. Купи. Продай.</h1><p>Простая площадка объявлений без лишнего.</p><div class="search"><input id="search" placeholder="Что ищете? Например, iPhone" oninput="render()"><button onclick="render()">Найти</button></div></section>
+<section class="categories" id="categories"></section>
+<section class="section-head"><div><h2>Новые объявления</h2><p id="count">Загрузка…</p></div><select id="sort" onchange="render()"><option value="new">Сначала новые</option><option value="cheap">Сначала дешевле</option><option value="expensive">Сначала дороже</option></select></section>
+<section class="grid" id="listings"></section>
+</main>
+<div class="modal hidden" id="sellModal"><div class="dialog"><button class="close" onclick="closeSell()">×</button><h2>Новое объявление</h2><form onsubmit="submitListing(event)"><input id="title" required maxlength="120" placeholder="Название товара или услуги"><input id="price" type="number" min="0" step="0.01" placeholder="Цена, ₽"><select id="category"></select><input id="seller" required maxlength="80" placeholder="Ваше имя"><input id="contact" required maxlength="120" placeholder="Контакт (Telegram, телефон)"><input id="city" maxlength="80" placeholder="Город"><textarea id="description" maxlength="500" placeholder="Описание"></textarea><input id="image" type="url" placeholder="Ссылка на фото (необязательно)"><button class="submit">Опубликовать</button></form></div></div>
+<script src="./app.js"></script>
+</body>
+</html>
