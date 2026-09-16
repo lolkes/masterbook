@@ -1,0 +1,20 @@
+const $=id=>document.getElementById(id);let token=localStorage.getItem('chatgo_token');let me=null,currentChat=null,ws=null,registerMode=false;
+function headers(){return token?{'Authorization':'Bearer '+token,'Content-Type':'application/json'}:{'Content-Type':'application/json'}}
+async function api(url,opt={}){opt.headers={...headers(),...(opt.headers||{})};const r=await fetch(url,opt);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||'Ошибка');return d}
+function authView(){ $('auth').hidden=!!token;$('messenger').hidden=!token }
+$('tabLogin').onclick=()=>{registerMode=false;$('tabLogin').classList.add('active');$('tabRegister').classList.remove('active');$('displayName').hidden=true;$('authSubmit').textContent='Войти'};
+$('tabRegister').onclick=()=>{registerMode=true;$('tabRegister').classList.add('active');$('tabLogin').classList.remove('active');$('displayName').hidden=false;$('authSubmit').textContent='Создать аккаунт'};
+$('authForm').onsubmit=async e=>{e.preventDefault();$('authError').textContent='';try{const body={username:$('username').value.trim(),password:$('password').value};if(registerMode)body.display_name=$('displayName').value.trim();const d=await api(registerMode?'/api/register':'/api/login',{method:'POST',body:JSON.stringify(body)});token=d.token;localStorage.setItem('chatgo_token',token);await init()}catch(err){$('authError').textContent=err.message}};
+$('logout').onclick=()=>{if(ws)ws.close();localStorage.removeItem('chatgo_token');token=null;me=null;authView()};
+async function init(){try{me=await api('/api/me');$('myName').textContent=' · '+me.display_name;authView();await loadUsers();await loadChats()}catch(e){token=null;localStorage.removeItem('chatgo_token');authView()}}
+async function loadUsers(q=''){const users=await api('/api/users?q='+encodeURIComponent(q));$('users').innerHTML=users.map(u=>`<button class="person" onclick="startChat(${u.id})"><b>${esc(u.display_name)}</b><small>@${esc(u.username)}</small></button>`).join('')||'<div class="muted">Никого не найдено</div>'}
+async function loadChats(){const chats=await api('/api/conversations');$('chats').innerHTML=chats.map(c=>`<button class="chatItem" onclick="openChat(${c.id},${c.user_id},'${esc(c.display_name)}')"><b>${esc(c.display_name)}</b><small>${esc(c.last_message||'Новый чат')}</small></button>`).join('')||'<div class="muted">Чатов пока нет</div>'}
+async function startChat(uid){const c=await api('/api/conversations/'+uid,{method:'POST'});const u=(await api('/api/users?q=')).find(x=>x.id===uid);await openChat(c.id,uid,u?.display_name||'Чат');await loadChats()}
+async function openChat(cid,uid,name){currentChat={cid,uid,name};$('chatHeader').textContent=name;await loadMessages();connectWS()}
+async function loadMessages(){if(!currentChat)return;const ms=await api('/api/conversations/'+currentChat.cid+'/messages');$('messages').innerHTML=ms.map(renderMessage).join('')||'<div class="empty">Пока нет сообщений. Напишите первым 👋</div>';$('messages').scrollTop=$('messages').scrollHeight}
+function renderMessage(m){return `<div class="bubble ${m.sender_id===me.id?'mine':''}">${esc(m.body)}<small>${m.sender_id===me.id?'Вы':esc(m.sender_name||'')} · ${new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</small></div>`}
+function connectWS(){if(ws)ws.close();ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/'+currentChat.cid+'?token='+encodeURIComponent(token));ws.onmessage=e=>{const m=JSON.parse(e.data);$('messages').insertAdjacentHTML('beforeend',renderMessage(m));$('messages').scrollTop=$('messages').scrollHeight}}
+$('messageForm').onsubmit=e=>{e.preventDefault();const body=$('messageInput').value.trim();if(!body||!ws||ws.readyState!==1)return;ws.send(JSON.stringify({body}));$('messageInput').value=''};
+$('search').oninput=e=>loadUsers(e.target.value);
+function esc(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+authView();if(token)init();
