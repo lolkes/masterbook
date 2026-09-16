@@ -15,19 +15,12 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import (
-    BotCommand,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    MenuButtonWebApp,
-    Message,
-    Update,
-    WebAppInfo,
-)
+from aiogram.types import BotCommand, InlineKeyboardMarkup, InlineKeyboardButton, MenuButtonWebApp, Update, WebAppInfo
 
 from database import *
+from marketplace_api import router as marketplace_router
 
-VERSION = "8.3"
+VERSION = "9.0"
 BASE = Path(__file__).parent
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
 DEMO = os.getenv("DEMO_MODE", "0") == "1"
@@ -37,6 +30,7 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "") or (hashlib.sha256(TOKEN.encode
 
 app = FastAPI(title="MasterBook API", version=VERSION)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(marketplace_router)
 
 dp = Dispatcher()
 router = Router()
@@ -47,59 +41,34 @@ bot = Bot(TOKEN) if TOKEN else None
 def open_app_keyboard():
     if not PUBLIC_URL:
         return None
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📱 Открыть MasterBook", web_app=WebAppInfo(url=PUBLIC_URL))]
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📱 Открыть MasterBook", web_app=WebAppInfo(url=PUBLIC_URL))]])
 
 
 @router.message(CommandStart())
-async def start(message: Message):
+async def start(message):
     if not PUBLIC_URL:
-        await message.answer(
-            "👋 <b>MasterBook</b> запущен, но адрес приложения ещё не настроен.",
-            parse_mode="HTML",
-        )
+        await message.answer("👋 <b>MasterBook</b> запущен, но адрес приложения ещё не настроен.", parse_mode="HTML")
         return
     await message.answer(
-        "👋 <b>MasterBook</b>\n\n"
-        "Ваш рабочий кабинет мастера прямо в Telegram.\n\n"
-        "• 👤 клиенты\n"
-        "• 🔧 работы и заказы\n"
-        "• 💰 доходы и прибыль\n"
-        "• 💸 расходы\n"
-        "• 📊 статистика\n\n"
-        "Быстрые команды:\n"
-        "/stats — статистика\n"
-        "/today — записи за сегодня\n"
-        "/clients — последние клиенты\n"
-        "/help — помощь\n\n"
-        "Все данные привязаны к вашему Telegram-аккаунту.",
-        reply_markup=open_app_keyboard(),
-        parse_mode="HTML",
-    )
+        "👋 <b>MasterBook</b>\n\nВаш рабочий кабинет мастера прямо в Telegram.\n\n"
+        "• 👤 клиенты\n• 🔧 работы и заказы\n• 💰 доходы и прибыль\n• 💸 расходы\n• 📊 статистика\n\n"
+        "Быстрые команды:\n/stats — статистика\n/today — записи за сегодня\n/clients — последние клиенты\n/help — помощь\n\n"
+        "Все данные привязаны к вашему Telegram-аккаунту.", reply_markup=open_app_keyboard(), parse_mode="HTML")
 
 
 @router.message(Command("stats"))
-async def stats_command(message: Message):
-    u = str(message.from_user.id)
-    s = get_stats(u, "month")
+async def stats_command(message):
+    s = get_stats(str(message.from_user.id), "month")
     await message.answer(
         "📊 <b>Статистика за 30 дней</b>\n\n"
-        f"💰 Доход: <b>{s['income']:,.0f} ₽</b>\n"
-        f"💸 Расходы: <b>{s['expenses']:,.0f} ₽</b>\n"
-        f"📈 Прибыль: <b>{s['profit']:,.0f} ₽</b>\n"
-        f"🔧 Работ: <b>{s['jobs']}</b>\n"
-        f"👤 Клиентов: <b>{s['clients']}</b>\n"
-        f"⏳ Не оплачено: <b>{s['unpaid']:,.0f} ₽</b>",
-        reply_markup=open_app_keyboard(),
-        parse_mode="HTML",
-    )
+        f"💰 Доход: <b>{s['income']:,.0f} ₽</b>\n💸 Расходы: <b>{s['expenses']:,.0f} ₽</b>\n"
+        f"📈 Прибыль: <b>{s['profit']:,.0f} ₽</b>\n🔧 Работ: <b>{s['jobs']}</b>\n"
+        f"👤 Клиентов: <b>{s['clients']}</b>\n⏳ Не оплачено: <b>{s['unpaid']:,.0f} ₽</b>",
+        reply_markup=open_app_keyboard(), parse_mode="HTML")
 
 
 @router.message(Command("today"))
-async def today_command(message: Message):
+async def today_command(message):
     u = str(message.from_user.id)
     today = date.today().isoformat()
     jobs_today = [j for j in get_jobs(u, 100) if j.get("job_date") == today]
@@ -109,40 +78,28 @@ async def today_command(message: Message):
         lines = [f"📅 <b>Записи на сегодня: {len(jobs_today)}</b>\n"]
         for j in jobs_today[:10]:
             client = j.get("client_name") or "Без клиента"
-            status = {"new": "🆕", "progress": "🔄", "done": "✅", "cancelled": "❌"}.get(j.get("status"), "•")
+            status = {"new":"🆕","progress":"🔄","done":"✅","cancelled":"❌"}.get(j.get("status"), "•")
             lines.append(f"{status} <b>{j['service']}</b> — {j['price']:,.0f} ₽\n   👤 {client}")
         text = "\n".join(lines)
     await message.answer(text, reply_markup=open_app_keyboard(), parse_mode="HTML")
 
 
 @router.message(Command("clients"))
-async def clients_command(message: Message):
-    u = str(message.from_user.id)
-    clients = get_clients(u)[:8]
+async def clients_command(message):
+    clients = get_clients(str(message.from_user.id))[:8]
     if not clients:
         text = "👤 <b>Клиентов пока нет.</b>\n\nДобавьте первого клиента в MasterBook."
     else:
-        lines = ["👤 <b>Последние клиенты</b>\n"]
-        for c in clients:
-            lines.append(f"• <b>{c['name']}</b> — {c.get('jobs_count', 0)} работ, {c.get('total_income', 0):,.0f} ₽")
-        text = "\n".join(lines)
+        text = "\n".join(["👤 <b>Последние клиенты</b>\n"] + [f"• <b>{c['name']}</b> — {c.get('jobs_count',0)} работ, {c.get('total_income',0):,.0f} ₽" for c in clients])
     await message.answer(text, reply_markup=open_app_keyboard(), parse_mode="HTML")
 
 
 @router.message(Command("help"))
-async def help_command(message: Message):
+async def help_command(message):
     await message.answer(
         "<b>MasterBook</b> — рабочий кабинет частного мастера.\n\n"
-        "Команды:\n"
-        "/start — открыть MasterBook\n"
-        "/stats — статистика за 30 дней\n"
-        "/today — записи на сегодня\n"
-        "/clients — последние клиенты\n"
-        "/help — помощь\n\n"
-        "Открывайте приложение через кнопку MasterBook, чтобы добавлять и редактировать данные.",
-        reply_markup=open_app_keyboard(),
-        parse_mode="HTML",
-    )
+        "Команды:\n/start — открыть MasterBook\n/stats — статистика за 30 дней\n/today — записи на сегодня\n/clients — последние клиенты\n/help — помощь",
+        reply_markup=open_app_keyboard(), parse_mode="HTML")
 
 
 def auth(data):
@@ -231,26 +188,14 @@ class Expense(BaseModel):
 async def startup():
     init_db()
     if bot and PUBLIC_URL:
-        await bot.set_my_commands(
-            [
-                BotCommand(command="start", description="Открыть MasterBook"),
-                BotCommand(command="stats", description="Статистика за 30 дней"),
-                BotCommand(command="today", description="Записи на сегодня"),
-                BotCommand(command="clients", description="Последние клиенты"),
-                BotCommand(command="help", description="Помощь по MasterBook"),
-            ]
-        )
-        await bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(
-                text="MasterBook",
-                web_app=WebAppInfo(url=PUBLIC_URL),
-            )
-        )
-        await bot.set_webhook(
-            url=f"{PUBLIC_URL}{WEBHOOK_PATH}",
-            secret_token=WEBHOOK_SECRET,
-            drop_pending_updates=False,
-        )
+        await bot.set_my_commands([
+            BotCommand(command="start", description="Открыть MasterBook"),
+            BotCommand(command="stats", description="Статистика за 30 дней"),
+            BotCommand(command="today", description="Записи на сегодня"),
+            BotCommand(command="clients", description="Последние клиенты"),
+            BotCommand(command="help", description="Помощь по MasterBook")])
+        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="MasterBook", web_app=WebAppInfo(url=PUBLIC_URL)))
+        await bot.set_webhook(url=f"{PUBLIC_URL}{WEBHOOK_PATH}", secret_token=WEBHOOK_SECRET, drop_pending_updates=False)
 
 
 @app.on_event("shutdown")
@@ -286,13 +231,7 @@ def js():
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
-        "version": VERSION,
-        "service": "MasterBook",
-        "telegram": bool(bot),
-        "webhook": bool(bot and PUBLIC_URL),
-    }
+    return {"status":"ok","version":VERSION,"service":"MasterBook","telegram":bool(bot),"webhook":bool(bot and PUBLIC_URL)}
 
 
 @app.post(WEBHOOK_PATH)
@@ -301,8 +240,7 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         raise HTTPException(503, "Telegram bot is not configured")
     if not hmac.compare_digest(x_telegram_bot_api_secret_token or "", WEBHOOK_SECRET):
         raise HTTPException(403, "Invalid webhook secret")
-    data = await request.json()
-    update = Update.model_validate(data, context={"bot": bot})
+    update = Update.model_validate(await request.json(), context={"bot": bot})
     await dp.feed_update(bot, update)
     return {"ok": True}
 
@@ -314,7 +252,7 @@ def me(x_telegram_init_data: str | None = Header(None)):
 
 @app.get("/api/stats")
 def stats(period: str = "all", x_telegram_init_data: str | None = Header(None)):
-    if period not in {"all", "month", "week"}:
+    if period not in {"all","month","week"}:
         raise HTTPException(400, "Неверный период")
     return get_stats(uid(x_telegram_init_data), period)
 
@@ -413,11 +351,11 @@ def export_data(x_telegram_init_data: str | None = Header(None)):
     u = uid(x_telegram_init_data)
     out = io.StringIO()
     w = csv.writer(out)
-    w.writerow(["Тип", "Дата", "Название/Услуга", "Клиент", "Сумма", "Расходы", "Статус", "Оплата", "Комментарий"])
+    w.writerow(["Тип","Дата","Название/Услуга","Клиент","Сумма","Расходы","Статус","Оплата","Комментарий"])
     for j in get_jobs(u, 5000):
-        w.writerow(["Работа", j["job_date"], j["service"], j.get("client_name") or "", j["price"], j["expenses"], j.get("status", "done"), j.get("payment_status", "paid"), j.get("comment", "")])
+        w.writerow(["Работа",j["job_date"],j["service"],j.get("client_name") or "",j["price"],j["expenses"],j.get("status","done"),j.get("payment_status","paid"),j.get("comment","")])
     for e in get_expenses(u, 5000):
-        w.writerow(["Расход", e["expense_date"], e["title"], "", -e["amount"], e["amount"], "", "", e.get("comment") or ""])
+        w.writerow(["Расход",e["expense_date"],e["title"],"",-e["amount"],e["amount"],"","",e.get("comment") or ""])
     data = io.BytesIO(("\ufeff" + out.getvalue()).encode("utf-8"))
     return StreamingResponse(data, media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="masterbook-export.csv"'})
 
@@ -429,26 +367,7 @@ def backup(x_telegram_init_data: str | None = Header(None)):
 
 @app.get("/api/version")
 def api_version():
-    return {
-        "version": VERSION,
-        "features": [
-            "dashboard",
-            "telegram-auth",
-            "per-user-data",
-            "job-status",
-            "payment-status",
-            "search",
-            "csv-export",
-            "json-backup",
-            "crud",
-            "telegram-webhook",
-            "telegram-menu-button",
-            "telegram-commands",
-            "telegram-quick-stats",
-            "telegram-today",
-            "telegram-clients",
-        ],
-    }
+    return {"version": VERSION, "features": ["dashboard","telegram-auth","per-user-data","job-status","payment-status","search","csv-export","json-backup","crud","telegram-webhook","telegram-menu-button","telegram-commands","telegram-quick-stats","telegram-today","telegram-clients","marketplace","marketplace-listings","marketplace-publishing","marketplace-search"]}
 
 
 if __name__ == "__main__":
