@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>ChatGo</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="app">
+    <section id="auth" class="auth card">
+      <div class="logo">💬 <span>ChatGo</span></div>
+      <p class="muted">Простой мессенджер без лишнего</p>
+      <div class="tabs"><button id="tabLogin" class="active">Войти</button><button id="tabRegister">Регистрация</button></div>
+      <form id="authForm">
+        <input id="username" placeholder="Логин" autocomplete="username" required>
+        <input id="displayName" placeholder="Имя" autocomplete="name" hidden>
+        <input id="password" type="password" placeholder="Пароль" autocomplete="current-password" required>
+        <button class="primary" type="submit" id="authSubmit">Войти</button>
+      </form>
+      <div id="authError" class="error"></div>
+    </section>
+
+    <section id="messenger" hidden>
+      <header class="topbar"><div><b>ChatGo</b><small id="myName"></small></div><button id="logout">Выйти</button></header>
+      <div class="layout">
+        <aside class="sidebar card">
+          <input id="search" placeholder="🔎 Найти пользователя">
+          <div id="users" class="list"></div>
+          <hr><h3>Чаты</h3><div id="chats" class="list"></div>
+        </aside>
+        <section class="conversation card">
+          <div id="chatHeader" class="chatHeader">Выберите пользователя</div>
+          <div id="messages" class="messages"><div class="empty">Начните новый разговор 👋</div></div>
+          <form id="messageForm" class="composer"><input id="messageInput" placeholder="Напишите сообщение…" autocomplete="off"><button>➤</button></form>
+        </section>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
